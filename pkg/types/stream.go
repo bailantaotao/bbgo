@@ -92,6 +92,8 @@ type StandardStream struct {
 	// When changing these field values, be sure to call subLock
 	subLock sync.Mutex
 
+	wg sync.WaitGroup
+
 	startCallbacks []func()
 
 	connectCallbacks []func()
@@ -191,6 +193,7 @@ func (s *StandardStream) SetConn(ctx context.Context, conn *websocket.Conn) (con
 	// ensure the previous context is cancelled
 	if s.ConnCancel != nil {
 		s.ConnCancel()
+		s.wg.Wait()
 	}
 
 	// create a new context for this connection
@@ -205,6 +208,7 @@ func (s *StandardStream) Read(ctx context.Context, conn *websocket.Conn, cancel 
 	defer func() {
 		cancel()
 		s.EmitDisconnect()
+		s.wg.Done()
 	}()
 
 	// flag format: debug-{component}-{message type}
@@ -284,6 +288,7 @@ func (s *StandardStream) ping(ctx context.Context, conn *websocket.Conn, cancel 
 	defer func() {
 		cancel()
 		log.Debug("[websocket] ping worker stopped")
+		s.wg.Done()
 	}()
 
 	var pingTicker = time.NewTicker(interval)
@@ -405,6 +410,7 @@ func (s *StandardStream) DialAndConnect(ctx context.Context) error {
 	connCtx, connCancel := s.SetConn(ctx, conn)
 	s.EmitConnect()
 
+	s.wg.Add(2)
 	go s.Read(connCtx, conn, connCancel)
 	go s.ping(connCtx, conn, connCancel, pingInterval)
 	if s.heartBeat != nil {
