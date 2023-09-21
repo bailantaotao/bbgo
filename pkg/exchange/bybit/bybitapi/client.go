@@ -25,6 +25,8 @@ const (
 	RestBaseURL         = "https://api.bybit.com"
 	WsSpotPublicSpotUrl = "wss://stream.bybit.com/v5/public/spot"
 	WsSpotPrivateUrl    = "wss://stream.bybit.com/v5/private"
+
+	RestBaseTestnetURL = "https://api-testnet.bybit.com"
 )
 
 // defaultRequestWindowMilliseconds specify how long an HTTP request is valid. It is also used to prevent replay attacks.
@@ -37,7 +39,7 @@ type RestClient struct {
 }
 
 func NewClient() (*RestClient, error) {
-	u, err := url.Parse(RestBaseURL)
+	u, err := url.Parse(RestBaseTestnetURL)
 	if err != nil {
 		return nil, err
 	}
