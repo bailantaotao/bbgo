@@ -437,6 +437,7 @@ It supports to query records up to 180 days.
 Otherwise, the result is sorted by tradeId in `descend`. **
 */
 func (e *Exchange) QueryTrades(ctx context.Context, symbol string, options *types.TradeQueryOptions) (trades []types.Trade, err error) {
+	var logger = log
 	// using v3 client, since the v5 API does not support feeCurrency.
 	req := e.v3client.NewGetTradesRequest()
 	req.Symbol(symbol)
@@ -451,9 +452,11 @@ func (e *Exchange) QueryTrades(ctx context.Context, symbol string, options *type
 	}
 	if options.StartTime != nil {
 		req.StartTime(options.StartTime.UTC())
+		logger.Infof("[edwin] elpased startTime: %v", options.StartTime)
 	}
 	if options.EndTime != nil {
 		req.EndTime(options.EndTime.UTC())
+		logger.Infof("[edwin] elpased endTime: %v", options.EndTime)
 	}
 
 	limit := uint64(options.Limit)
@@ -463,15 +466,20 @@ func (e *Exchange) QueryTrades(ctx context.Context, symbol string, options *type
 	}
 	req.Limit(limit)
 
+	startTime := time.Now()
 	if err := tradeRateLimiter.Wait(ctx); err != nil {
 		return nil, fmt.Errorf("trade rate limiter wait error: %w", err)
 	}
+
+	logger.Infof("[edwin] elpased rate limit: %v, %s", time.Since(startTime), symbol)
+	startTime = time.Now()
 	response, err := req.Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trades, err: %w", err)
 	}
 
 	var errs error
+
 	for _, trade := range response.List {
 		res, err := v3ToGlobalTrade(trade)
 		if err != nil {
@@ -480,6 +488,7 @@ func (e *Exchange) QueryTrades(ctx context.Context, symbol string, options *type
 		}
 		trades = append(trades, *res)
 	}
+	logger.Infof("[edwin] elpased trade request: %v, %s", time.Since(startTime), symbol)
 
 	if errs != nil {
 		return nil, errs

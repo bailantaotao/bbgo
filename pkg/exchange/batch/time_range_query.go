@@ -41,11 +41,14 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 	startTime := since
 	endTime := until
 
+	logger := log.WithField("exchangeID", "bybit")
+	logger.Debugf("[edwin] elpased startTime: %v, endTime: %v", startTime, endTime)
 	go func() {
 		defer cRef.Close()
 		defer close(errC)
 
 		idMap := make(map[string]struct{}, 100)
+		loopStartTime := time.Now()
 		for startTime.Before(endTime) {
 			if q.Limiter != nil {
 				if err := q.Limiter.Wait(ctx); err != nil {
@@ -54,7 +57,7 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 				}
 			}
 
-			log.Debugf("batch querying %T: %v <=> %v", q.Type, startTime, endTime)
+			logger.Debugf("[edwin] batch querying %T: %v <=> %v", q.Type, startTime, endTime)
 
 			queryProfiler := util.StartTimeProfile("remoteQuery")
 
@@ -66,20 +69,20 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 
 			listRef := reflect.ValueOf(sliceInf)
 			listLen := listRef.Len()
-			log.Debugf("batch querying %T: %d remote records", q.Type, listLen)
+			logger.Debugf("[edwin] batch querying %T: %d remote records", q.Type, listLen)
 
-			queryProfiler.StopAndLog(log.Debugf)
+			queryProfiler.StopAndLog(logger.Debugf)
 
 			if listLen == 0 {
 				if q.JumpIfEmpty > 0 {
 					startTime = startTime.Add(q.JumpIfEmpty)
 					if startTime.Before(endTime) {
-						log.Debugf("batch querying %T: empty records jump to %s", q.Type, startTime)
+						logger.Debugf("[edwin] batch querying %T: empty records jump to %s", q.Type, startTime)
 						continue
 					}
 				}
 
-				log.Debugf("batch querying %T: empty records, query is completed", q.Type)
+				logger.Debugf("[edwin] batch querying %T: empty records, query is completed", q.Type)
 				return
 			}
 
@@ -92,6 +95,7 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 				return tA.Before(tB)
 			})
 
+			emitStartTime := time.Now()
 			sentAny := false
 			for i := 0; i < listLen; i++ {
 				item := listRef.Index(i)
@@ -103,7 +107,7 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 				obj := item.Interface()
 				id := q.ID(obj)
 				if _, exists := idMap[id]; exists {
-					log.Debugf("batch querying %T: ignore duplicated record, id = %s", q.Type, id)
+					logger.Debugf("[edwin] batch querying %T: ignore duplicated record, id = %s", q.Type, id)
 					continue
 				}
 
@@ -113,12 +117,14 @@ func (q *AsyncTimeRangedBatchQuery) Query(ctx context.Context, ch interface{}, s
 				sentAny = true
 				startTime = entryTime
 			}
+			logger.Debugf("[edwin] elpased emit: %v", time.Since(emitStartTime))
 
 			if !sentAny {
-				log.Debugf("batch querying %T: %d/%d records are not sent", q.Type, listLen, listLen)
+				logger.Debugf("[edwin] batch querying %T: %d/%d records are not sent", q.Type, listLen, listLen)
 				return
 			}
 		}
+		logger.Debugf("[edwin] elpased loop time: %v", time.Since(loopStartTime))
 	}()
 
 	return errC
